@@ -16,9 +16,7 @@ BaseRequest.MEMFILE_MAX = 2048 * 8192  # (or whatever you want)
 SERVER_ADDRESS = 'http://localhost:8080/'
 NUM_LIMBS = 3
 
-CLIENT_PORT = 9030
-if (len(sys.argv) > 1):
-    CLIENT_PORT = int(sys.argv[1])
+CLIENT_PORT = int(sys.argv[1]) if (len(sys.argv) > 1) else 9030
 CLIENT_ADDRESS = 'localhost'
 
 CLIENT_NUMBER = 0
@@ -86,7 +84,7 @@ def register():
                 startNewComp()
         return json.dumps({'result': str(CLIENT_NUMBER)})
 
-    response = urllib.request.urlopen(SERVER_ADDRESS + 'register')
+    response = urllib.request.urlopen(f'{SERVER_ADDRESS}register')
     print("Received response from server")
     jsonResult = json.loads(response.read().decode('utf-8'))
     print("Registration result ", jsonResult)
@@ -98,7 +96,7 @@ def register():
     keyString = subprocess.check_output(["bash", "scripts/keyGen.bash"] + keyGenArgs).decode('utf-8')
     keyElems = keyString.split('\n')
     # print(keyElems)
-    keyElems = keyElems[:len(keyElems)-1]
+    keyElems = keyElems[:-1]
     global NUM_LIMBS
     # print(keyElems)
     assert(len(keyElems) == NUM_LIMBS*3)
@@ -120,7 +118,7 @@ def register():
     toEncodePK = {'clientNum': str(CLIENT_NUMBER), 'pka': ';'.join(PUBLIC_KEY[0]), 'pkb': ';'.join(PUBLIC_KEY[1])}
     # print("Sending pk: ", toEncodePK)
     urlPK = urllib.parse.urlencode(toEncodePK).encode('ascii')
-    urllib.request.urlopen(SERVER_ADDRESS + 'postPK', urlPK)
+    urllib.request.urlopen(f'{SERVER_ADDRESS}postPK', urlPK)
 
     return json.dumps({'result': str(CLIENT_NUMBER)})
 
@@ -140,10 +138,18 @@ def readyUp():
     global CLIENT_NUMBER
     global CLIENT_ADDRESS
     global CLIENT_PORT
-    readyUpArgs = {'clientNum': str(CLIENT_NUMBER), 'address': 'http://' + CLIENT_ADDRESS + ':' + str(CLIENT_PORT) + '/'}
+    readyUpArgs = {
+        'clientNum': str(CLIENT_NUMBER),
+        'address': f'http://{CLIENT_ADDRESS}:{str(CLIENT_PORT)}/',
+    }
+
     urlReadyUp = urllib.parse.urlencode(readyUpArgs).encode('ascii')
     # urllib.request.urlopen(SERVER_ADDRESS + "keyGen", urlReadyUp)
-    Thread(target=urllib.request.urlopen, args=[SERVER_ADDRESS + 'keyGen', urlReadyUp]).start()
+    Thread(
+        target=urllib.request.urlopen,
+        args=[f'{SERVER_ADDRESS}keyGen', urlReadyUp],
+    ).start()
+
 
     print("Requested shared keygen from server")
 
@@ -159,14 +165,14 @@ def receivePublicKey():
     pka = pka.split(';')
     pkb = pkb.split(';')
     for i in range(len(pka)):
-        pka[i] = pka[i][:len(pka[i])-1]
-        pkb[i] = pkb[i][:len(pkb[i])-1]
+        pka[i] = pka[i][:-1]
+        pkb[i] = pkb[i][:-1]
     SHARED_PK = [pka, pkb]
     # print("Received shared key: ", SHARED_PK)
 
     global NUM_CLIENTS
     NUM_CLIENTS = request.params.get('numClients', 0, type=int)
-    print("Received shared key generated from " + str(NUM_CLIENTS) + " client keys")
+    print(f"Received shared key generated from {str(NUM_CLIENTS)} client keys")
 
     global WEBSOCK
     keyPush = {'msg': "PUBKEY", 'numClients': str(NUM_CLIENTS), 'pka': SHARED_PK, 'pkb': SHARED_PK}
@@ -198,7 +204,6 @@ def encryptVector():
     # print(ciphertext)
     global NUM_LIMBS
     assert(len(ciphertext) == 4*NUM_LIMBS + 1)
-    CIPHERTEXT = []
     ctRegA = []
     ctRegB = []
     ctSqA = []
@@ -208,10 +213,7 @@ def encryptVector():
         ctRegB.append(ciphertext[i+NUM_LIMBS])
         ctSqA.append(ciphertext[i + 2*NUM_LIMBS])
         ctSqB.append(ciphertext[i + 3*NUM_LIMBS])
-    # CIPHERTEXT.append([ciphertext[0], ciphertext[1]])
-    # CIPHERTEXT.append([ciphertext[2], ciphertext[3]])
-    CIPHERTEXT.append([ctRegA, ctRegB])
-    CIPHERTEXT.append([ctSqA, ctSqB])
+    CIPHERTEXT = [[ctRegA, ctRegB], [ctSqA, ctSqB]]
     # print("Loaded ciphertext: ", CIPHERTEXT)
 
     print("Returning encrypted data to client")
@@ -240,8 +242,8 @@ def sendData():
     postCtArgs = {'clientNum': str(CLIENT_NUMBER)}
     ctInd = 0
     for ct in CIPHERTEXT:
-        ctaLabel = "cta" + str(ctInd)
-        ctbLabel = "ctb" + str(ctInd)
+        ctaLabel = f"cta{str(ctInd)}"
+        ctbLabel = f"ctb{str(ctInd)}"
         postCtArgs[ctaLabel] = ';'.join(ct[0])
         postCtArgs[ctbLabel] = ';'.join(ct[1])
         # postCtArgs[ctLabel] = {'cta': ct[0], 'ctb': ct[1]}
@@ -250,7 +252,11 @@ def sendData():
 
     urlCtArgs = urllib.parse.urlencode(postCtArgs).encode('ascii')
     global SERVER_ADDRESS
-    Thread(target=urllib.request.urlopen, args=[SERVER_ADDRESS + 'postCt', urlCtArgs]).start()
+    Thread(
+        target=urllib.request.urlopen,
+        args=[f'{SERVER_ADDRESS}postCt', urlCtArgs],
+    ).start()
+
 
     return json.dumps({'result': 'True'})
 
@@ -263,14 +269,14 @@ def receiveEnryptedResult():
 
 
     numCts = request.params.get('numCts', 0, type=int)
-    print("Received " + str(numCts) + " ciphertext from the server")
+    print(f"Received {str(numCts)} ciphertext from the server")
     for ctInd in range(numCts):
-        ctaLabel = 'cta' + str(ctInd)
-        ctbLabel = 'ctb' + str(ctInd)
+        ctaLabel = f'cta{str(ctInd)}'
+        ctbLabel = f'ctb{str(ctInd)}'
         cta = request.params.get(ctaLabel, 0, type=str).split(';')
         ctb = request.params.get(ctbLabel, 0, type=str).split(';')
         ENCRYPTED_RESULT.append([cta, ctb])
-        # return json.dumps({'result': 'True'})
+            # return json.dumps({'result': 'True'})
 
     # print(len(ENCRYPTED_RESULT))
     # print("Enc result: ", ENCRYPTED_RESULT)
@@ -305,7 +311,7 @@ def genAndSendDecryptShare():
 
     shares = subprocess.check_output(["bash", "scripts/decrypt.bash"] + decArgs).decode('utf-8')
     shares = shares.split('\n')
-    shares = shares[:len(shares)-1]
+    shares = shares[:-1]
     # print("Shares: ", shares)
 
     DECRYPTION_SHARES = [[], []]
@@ -317,13 +323,16 @@ def genAndSendDecryptShare():
     global CLIENT_NUMBER
     sendSharesArgs = {'clientNum': CLIENT_NUMBER, 'numShares': len(ENCRYPTED_RESULT)}
     for s in range(len(DECRYPTION_SHARES)):
-        shareLabel = "share" + str(s)
+        shareLabel = f"share{str(s)}"
         sendSharesArgs[shareLabel] = ';'.join(DECRYPTION_SHARES[s])
 
     global SERVER_ADDRESS
     urlShares = urllib.parse.urlencode(sendSharesArgs).encode('ascii')
     # urllib.request.urlopen(SERVER_ADDRESS + 'decrypt', urlShares)
-    Thread(target=urllib.request.urlopen, args=[SERVER_ADDRESS + 'decrypt', urlShares]).start()
+    Thread(
+        target=urllib.request.urlopen,
+        args=[f'{SERVER_ADDRESS}decrypt', urlShares],
+    ).start()
 
 
 def computeHHI():
@@ -353,7 +362,7 @@ def receiveResult():
     global ORIGLENGTH
     global NUM_CLIENTS
     for r in range(numResults):
-        resLabel = 'result' + str(r)
+        resLabel = f'result{str(r)}'
         rawResult = request.params.get(resLabel, 0, type=str)
         rawResult = rawResult.split(" ")
         rawResult = rawResult[:ORIGLENGTH]
@@ -380,10 +389,10 @@ def startNewComp():
     RESULTS = []
     global CLIENT_NUMBER
     resetArgs = {'clientNum': str(CLIENT_NUMBER)}
-    print("Sending reset request as client number: ", str(CLIENT_NUMBER))
+    print("Sending reset request as client number: ", CLIENT_NUMBER)
     resetURL = urllib.parse.urlencode(resetArgs).encode('ascii')
     global SERVER_ADDRESS
-    urllib.request.urlopen(SERVER_ADDRESS + "reset", resetURL)
+    urllib.request.urlopen(f"{SERVER_ADDRESS}reset", resetURL)
 
 
 

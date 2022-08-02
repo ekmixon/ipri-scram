@@ -51,8 +51,8 @@ def computeOnEncryptedData():
     for client in CLIENT_DATA:
         for ct in CLIENT_DATA[client]:
             for limb in range(NUM_LIMBS):
-                ct[0][limb] = ct[0][limb][:len(ct[0][limb])-1]
-                ct[1][limb] = ct[1][limb][:len(ct[1][limb])-1]
+                ct[0][limb] = ct[0][limb][:-1]
+                ct[1][limb] = ct[1][limb][:-1]
             # print("Ct: ", ct)
             arguments.extend(ct[0])
             arguments.extend(ct[1])
@@ -64,13 +64,10 @@ def computeOnEncryptedData():
     result = result.split('\n')
     # print(result)
     assert(len(result) >= 3)
-    result = result[:len(result)-1]
+    result = result[:-1]
     # print(result)
     assert(len(result) % 2 == 0)
     assert(len(result) == 4*NUM_LIMBS)
-
-    # for i in range(0, len(result), 2):
-        # COMPUTATION_RESULT.append([result[i], result[i+1]])
 
     COMPUTATION_RESULT = [ [ [],[] ], [ [],[] ] ]  ## Two cts, two limbs each
     for i in range(NUM_LIMBS):
@@ -110,8 +107,8 @@ def postPK():
     pka = pka.split(';')
     pkb = pkb.split(';')
     for i in range(len(pka)):
-        pka[i] = pka[i][:len(pka[i])-1]
-        pkb[i] = pkb[i][:len(pkb[i])-1]
+        pka[i] = pka[i][:-1]
+        pkb[i] = pkb[i][:-1]
 
     global CLIENT_PKs
     for client in CLIENT_PKs:
@@ -145,13 +142,7 @@ def generateSharedKey():
         CLIENT_READY[clientNum] = clientAddress
     print(CLIENT_READY)
 
-    ## Check if all clients are ready
-    ready = True
-    for client in CLIENT_READY:
-        if not CLIENT_READY[client]:
-            ready = False
-            break
-
+    ready = all(CLIENT_READY[client] for client in CLIENT_READY)
     if ready:
         ## Generate shared key and send it to each client
         ### Make pk args list
@@ -183,7 +174,7 @@ def generateSharedKey():
         postPKArgs = {'numClients': str(NUM_REGISTERED_CLIENTS),'mpPKa': ';'.join(shPKa), 'mpPKb': ';'.join(shPKb)}
         urlPostPK = urllib.parse.urlencode(postPKArgs).encode('ascii')
         for client in CLIENT_READY:
-            urllib.request.urlopen(CLIENT_READY[client] + 'receivePublicKey', urlPostPK)
+            urllib.request.urlopen(f'{CLIENT_READY[client]}receivePublicKey', urlPostPK)
 
 
 @route('/postCt', method=['POST'])
@@ -198,9 +189,9 @@ def receiveClientCiphertext():
     # print("Received ciphertext from client ", clientNum)
 
     global CLIENT_DATA
-    for ctInd in range(0, numCts):
-        ctaLabel = "cta" + str(ctInd)
-        ctbLabel = "ctb" + str(ctInd)
+    for ctInd in range(numCts):
+        ctaLabel = f"cta{str(ctInd)}"
+        ctbLabel = f"ctb{str(ctInd)}"
         clCTa = request.params.get(ctaLabel, 0, type=str).split(';')
         # print("cta: ", clCTa)
         clCTb = request.params.get(ctbLabel, 0, type=str).split(';')
@@ -221,8 +212,8 @@ def receiveClientCiphertext():
         ctInd = 0
         requestCtArgs = {}
         for ct in COMPUTATION_RESULT:
-            ctaLabel = 'cta' + str(ctInd)
-            ctbLabel = 'ctb' + str(ctInd)
+            ctaLabel = f'cta{str(ctInd)}'
+            ctbLabel = f'ctb{str(ctInd)}'
             requestCtArgs[ctaLabel] = ';'.join(ct[0])
             requestCtArgs[ctbLabel] = ';'.join(ct[1])
             ctInd += 1
@@ -233,27 +224,22 @@ def receiveClientCiphertext():
         global CLIENT_READY
         for client in CLIENT_READY:
             address = CLIENT_READY[client]
-            urllib.request.urlopen(address + 'postEncryptedResult', urlArgs)
+            urllib.request.urlopen(f'{address}postEncryptedResult', urlArgs)
 
 @route('/decrypt', method=['POST'])
 def combineShares():
     print("In combine shares")
     clientNum = request.params.get('clientNum', 0, type=int)
     numShares = request.params.get('numShares', 0, type=int)
-    print("Received " + str(numShares) + " from client " + str(clientNum))
+    print(f"Received {str(numShares)} from client {str(clientNum)}")
 
     global RESULT_SHARES
     if len(RESULT_SHARES[str(clientNum)]) == 0:
         for s in range(numShares):
-            shareLabel = "share" + str(s);
+            shareLabel = f"share{str(s)}";
             RESULT_SHARES[str(clientNum)].append(request.params.get(shareLabel, 0, type=str).split(';'))
 
-    ready = True
-    for cl in RESULT_SHARES:
-        if len(RESULT_SHARES[cl]) == 0:
-            ready = False
-            break
-
+    ready = all(len(RESULT_SHARES[cl]) != 0 for cl in RESULT_SHARES)
     if ready:
         ## Combine shares
         combArgs = [str(numShares)]
@@ -266,19 +252,19 @@ def combineShares():
         results = subprocess.check_output(["bin/demo/ipri-demo/server/combineShares"] + combArgs).decode('utf-8')
         # print("Results: ", results)
         results = results.split('\n')
-        results = results[:len(results)-1]
+        results = results[:-1]
         assert(len(results) == numShares)
 
         ## Send results to client
         resArgs = {'numResults': str(numShares)}
         for r in range(len(results)):
-            resLabel = 'result' + str(r)
+            resLabel = f'result{str(r)}'
             resArgs[resLabel] = results[r]
 
         urlArgs = urllib.parse.urlencode(resArgs).encode('ascii')
         global CLIENT_READY
         for cl in CLIENT_READY:
-            urllib.request.urlopen(CLIENT_READY[cl] + 'postResult', urlArgs)
+            urllib.request.urlopen(f'{CLIENT_READY[cl]}postResult', urlArgs)
 
 
 def resetGlobals(clientNum):
